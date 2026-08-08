@@ -47,6 +47,9 @@ class PasswordChange(BaseModel):
 
     @model_validator(mode="after")
     def passwords_match(self):
+        self.current_password = self.current_password.strip()
+        self.new_password = self.new_password.strip()
+        self.confirm_password = self.confirm_password.strip()
         if self.new_password != self.confirm_password:
             raise ValueError("两次输入的新密码不一致")
         if self.new_password == self.current_password:

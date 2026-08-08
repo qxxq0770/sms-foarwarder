@@ -49,6 +49,31 @@ def test_local_password_recovery_invalidates_sessions(client: TestClient, settin
         ).status_code == 200
 
 
+def test_password_change_ignores_copied_surrounding_whitespace(
+    client: TestClient, settings: Settings
+) -> None:
+    updated_password = "Copied-password-123"
+    client.post(
+        "/api/session",
+        json={"username": "admin", "password": settings.admin_password},
+    )
+
+    changed = client.post(
+        "/api/settings/password",
+        json={
+            "current_password": f"  {settings.admin_password}\n",
+            "new_password": f" {updated_password} ",
+            "confirm_password": f"{updated_password}\n",
+        },
+    )
+
+    assert changed.status_code == 200
+    assert client.post(
+        "/api/session",
+        json={"username": "admin", "password": updated_password},
+    ).status_code == 200
+
+
 def test_webhook_requires_valid_token(client: TestClient, sms_payload: dict[str, object]) -> None:
     response = client.post("/api/webhooks/sms", json=sms_payload)
     assert response.status_code == 401

@@ -4,6 +4,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+ARG PIP_INDEX_URL=http://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+
 WORKDIR /app
 
 RUN groupadd --gid 10001 app && \
@@ -21,7 +26,7 @@ EXPOSE 8000
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+  CMD ["python", "-c", "import os, urllib.request; from urllib.parse import urlsplit; host = urlsplit(os.environ.get('PUBLIC_BASE_URL', 'http://localhost:8000')).netloc or 'localhost:8000'; request = urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'Host': host}); urllib.request.urlopen(request, timeout=2)"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
 

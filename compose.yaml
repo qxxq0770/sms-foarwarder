@@ -1,4 +1,12 @@
 services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sms-forwarder-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://sms-forwarder:8000
+    depends_on:
+      - sms-forwarder
+
   sms-forwarder:
     build: .
     image: sms-forwarder:local
