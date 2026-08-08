@@ -1,0 +1,5 @@
+cryptography==50.0.0
+fastapi @ https://files.pythonhosted.org/packages/cb/03/10388a42375ee7e4ac9b94eb2c5c569c8b5795e377e701c9ac3ad63de890/fastapi-0.141.1-py3-none-any.whl#sha256=bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3
+pydantic-settings==2.10.1
+starlette @ https://files.pythonhosted.org/packages/e6/6a/a9ff0b4b7603f9498fa419b63ff09e182536ff2f739c85df7f38c0b46781/starlette-1.5.0-py3-none-any.whl#sha256=9ca76b47375e56f279d7c66651e801ef11167e58557c429be7ec55702d81d4bb
+uvicorn[standard]==0.39.0

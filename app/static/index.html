@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#101828" />
+    <title>SMS Forwarder 管理台</title>
+    <link rel="icon" type="image/png" href="/static/app-icon.png?v=1" />
+    <link rel="apple-touch-icon" href="/static/app-icon.png?v=1" />
+    <link rel="stylesheet" href="/static/styles.css?v=44" />
+    <script src="/static/app.js?v=35" defer></script>
+  </head>
+  <body>
+    <main id="login-view" class="login-view" hidden>
+      <section class="login-panel">
+        <div class="login-brand">
+          <div class="brand-mark" aria-hidden="true"><img src="/static/app-icon.png?v=1" alt="" /></div>
+          <strong>SMS Forwarder</strong>
+        </div>
+        <form id="login-form" class="stack-form">
+          <label>用户名<input id="username" autocomplete="username" required /></label>
+          <label>密码<input id="password" type="password" autocomplete="current-password" required /></label>
+          <p id="login-error" class="form-error" role="alert" hidden></p>
+          <button class="button primary full" type="submit">登录</button>
+        </form>
+      </section>
+    </main>
+
+    <div id="app-view" class="app-shell" hidden>
+      <aside class="sidebar">
+        <div class="sidebar-brand"><div class="brand-mark small" aria-hidden="true"><img src="/static/app-icon.png?v=1" alt="" /></div><div><strong>SMS Forwarder</strong></div></div>
+        <nav class="nav" aria-label="主导航">
+          <a class="nav-item active" data-view="dashboard" href="#dashboard"><svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="2.5" width="6" height="6" rx="1.5"/><rect x="2.5" y="11.5" width="6" height="6" rx="1.5"/><rect x="11.5" y="11.5" width="6" height="6" rx="1.5"/></svg>看板</a>
+          <a class="nav-item" data-view="numbers" href="#numbers"><svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><rect x="3" y="4" width="10" height="12" rx="2"/><path d="M7 7h2.5M6 10h4M6 13h2"/><path d="M13 7h2a2 2 0 0 1 2 2v5"/></svg>号池</a>
+          <a class="nav-item" data-view="keys" href="#keys"><svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><circle cx="7" cy="10" r="4"/><path d="M11 10h6M14 10v2M16.5 10v2"/></svg>密钥</a>
+          <a class="nav-item" data-view="settings" href="#settings"><svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="M3 5h5M12 5h5M3 10h9M16 10h1M3 15h2M9 15h8"/><circle cx="10" cy="5" r="2"/><circle cx="14" cy="10" r="2"/><circle cx="7" cy="15" r="2"/></svg>设置</a>
+        </nav>
+        <div id="account-menu" class="account-menu">
+          <button id="logout-button" class="logout-card" type="button" hidden><svg class="logout-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10"/><path d="M13 8l4 4-4 4M8 12h9"/></svg>退出登录</button>
+          <button id="account-button" class="account-trigger" type="button" aria-expanded="false" aria-controls="logout-button"><span class="account-copy"><strong id="account-name">Admin</strong><small>管理员</small></span><svg class="account-chevron" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="m6 8 4 4 4-4"/></svg></button>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section id="dashboard-section" class="view-section">
+          <div class="stats">
+            <article><span>可用号码</span><strong id="available-count">—</strong></article>
+            <article><span>可用次数</span><strong id="available-uses-count">—</strong></article>
+            <article><span>接码中</span><strong id="active-count">—</strong></article>
+            <article><span>待使用密钥</span><strong id="ready-count">—</strong></article>
+            <article><span>今日短信</span><strong id="today-count">—</strong></article>
+          </div>
+          <div class="panel dashboard-panel">
+            <div class="record-heading"><h2>使用记录</h2></div>
+            <section id="records-panel">
+              <div class="list-toolbar"><label class="search-field"><span class="sr-only">搜索使用记录</span><input id="search-input" type="search" placeholder="搜索使用记录" autocomplete="off" /></label><span id="message-count" class="result-count"></span></div>
+              <div class="record-table">
+                <div class="record-table-head record-grid" aria-hidden="true"><span>Key</span><span>手机号</span><span>短信</span><span>时间</span></div>
+                <div id="message-list" class="message-list" aria-live="polite"></div>
+                <div id="message-empty" class="empty-state" hidden>暂无使用记录。</div>
+              </div>
+              <div id="message-pagination" class="pagination" hidden><button id="message-previous" class="button secondary compact" type="button">上一页</button><span id="message-page"></span><button id="message-next" class="button secondary compact" type="button">下一页</button></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="numbers-section" class="view-section" hidden>
+          <header class="page-header action-only"><button id="add-number-row" class="button primary" type="button">新增号码</button></header>
+          <div class="panel table-wrap"><div class="table-head number-grid"><span>号码</span><span>使用次数</span><span>状态</span><span>操作</span></div><div id="number-list" class="table-body"></div></div>
+          <div id="number-pagination" class="pagination" hidden><button id="number-previous" class="button secondary compact" type="button">上一页</button><span id="number-page"></span><button id="number-next" class="button secondary compact" type="button">下一页</button></div>
+        </section>
+
+        <section id="keys-section" class="view-section" hidden>
+          <header class="page-header action-only"><button class="button primary" data-toggle-panel="key-form-panel" type="button">生成密钥</button></header>
+          <section id="key-form-panel" class="panel form-panel" hidden>
+            <div class="panel-heading"><h2>生成密钥</h2><button class="icon-button" data-close-panel="key-form-panel" type="button" aria-label="关闭">×</button></div>
+            <form id="key-form" class="form-grid two">
+              <label>生成数量<input id="key-count" type="number" min="1" max="20" value="1" required /></label>
+              <label>有效期<select id="key-validity" required><option value="12">12 小时</option><option value="24">24 小时</option></select></label>
+              <div class="warning-note form-span">有效期从买家首次打开并成功分配号码后开始；结束后号码立即返回号池。</div>
+              <div class="form-actions form-span"><button class="button primary" type="submit">生成</button></div>
+            </form>
+          </section>
+          <div class="key-toolbar">
+            <label>状态筛选<select id="key-status"><option value="">全部状态</option><option value="ready">待使用</option><option value="used">已使用</option></select></label>
+            <div class="key-toolbar-actions"><span id="key-result-count" class="result-count"></span><button id="copy-filtered-keys" class="button secondary" type="button">一键复制</button></div>
+          </div>
+          <div class="panel table-wrap key-list-panel"><div class="table-head key-grid"><span>领取链接</span><span>有效期</span><span>状态</span></div><div id="key-list" class="table-body"></div></div>
+          <div id="key-pagination" class="pagination" hidden><button id="key-previous" class="button secondary compact" type="button">上一页</button><span id="key-page"></span><button id="key-next" class="button secondary compact" type="button">下一页</button></div>
+        </section>
+
+        <section id="settings-section" class="view-section" hidden>
+          <div class="settings-grid">
+            <section class="panel settings-block"><h2>接码设置</h2><p class="settings-description">有效期从密钥首次打开并成功分配号码后开始。</p><form id="defaults-form" class="stack-form"><label>默认有效期<select id="default-validity-hours" required><option value="12">12 小时</option><option value="24">24 小时</option></select></label><button class="button primary" type="submit">保存设置</button></form></section>
+            <section class="panel settings-block account-settings"><h2>账户安全</h2><p class="settings-description">修改后其他管理会话会立即退出。</p><form id="password-form" class="stack-form"><label>当前密码<input id="current-password" type="password" autocomplete="current-password" required /></label><label>新密码<input id="new-password" type="password" minlength="8" autocomplete="new-password" required /></label><label>确认新密码<input id="confirm-password" type="password" minlength="8" autocomplete="new-password" required /></label><button class="button primary" type="submit">更新密码</button></form></section>
+            <section class="panel settings-block settings-wide webhook-settings"><h2>Webhook 接入</h2><p class="settings-description">短信转发端使用以下地址和认证头提交数据。</p><div class="field-row"><code id="webhook-url">—</code><button id="copy-webhook" class="button secondary compact" type="button">复制</button></div><div class="settings-divider"></div><div class="token-control"><div><strong>认证 Token</strong><span>生成新 Token 后旧 Token 立即失效，完整值仅显示一次。</span></div><button id="generate-webhook-token" class="button secondary" type="button">生成 Token</button></div><div id="webhook-token-result" class="token-result" hidden><code id="webhook-token-value"></code><button id="copy-webhook-token" class="button secondary compact" type="button">复制</button></div><pre class="request-example">Authorization: Bearer &lt;WEBHOOK_TOKEN&gt;
+Content-Type: application/json
+
+{"message":"验证码 123456","recipient":"+8613800000000"}</pre></section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="message-dialog" class="message-dialog"><div class="dialog-header"><div><span id="dialog-rule" class="badge"></span><h2 id="dialog-sender"></h2><p id="dialog-recipient"></p></div><button id="close-dialog" class="icon-button" type="button" aria-label="关闭">×</button></div><p id="dialog-message" class="dialog-message"></p><dl class="dialog-meta"><div><dt>接收时间</dt><dd id="dialog-time"></dd></div><div><dt>投递 ID</dt><dd><code id="dialog-delivery"></code></dd></div><div><dt>路由状态</dt><dd id="dialog-routed"></dd></div></dl><div class="dialog-actions"><button id="delete-message" class="button danger-quiet" type="button">删除</button><button id="done-dialog" class="button primary" type="button">完成</button></div></dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

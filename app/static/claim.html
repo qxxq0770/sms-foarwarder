@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f5f7fb" />
+    <title>接收验证码</title>
+    <link rel="icon" type="image/png" href="/static/app-icon.png?v=1" />
+    <link rel="apple-touch-icon" href="/static/app-icon.png?v=1" />
+    <link rel="stylesheet" href="/static/styles.css?v=43" />
+    <link rel="stylesheet" href="/static/claim.css?v=36" />
+    <script src="/static/claim.js?v=16" defer></script>
+  </head>
+  <body class="claim-body">
+    <main class="claim-main">
+      <aside class="service-note" aria-label="客服提示">
+        <span class="service-note-mark" aria-hidden="true">✦</span>
+        <p>
+          <strong>祝您观影愉快</strong>
+          <span class="service-note-help">如遇问题，请联系在线客服</span>
+          <button id="copy-service-qq" class="service-note-contact" type="button" data-qq="2865629869" aria-label="复制客服 QQ 2865629869">
+            <span id="service-qq-value">QQ：2865629869</span>
+            <span class="service-note-copy" aria-hidden="true">复制</span>
+          </button>
+        </p>
+      </aside>
+
+      <section id="claim-loading" class="claim-message-card">
+        <div class="claim-spinner"></div>
+        <h1>正在分配号码</h1>
+        <p>请稍候，无需刷新页面。</p>
+      </section>
+
+      <section id="claim-error" class="claim-message-card" hidden>
+        <div class="claim-error-symbol">!</div>
+        <h1 id="claim-error-title">链接不可用</h1>
+        <p id="claim-error-message">请联系管理员重新获取链接。</p>
+      </section>
+
+      <div id="claim-app" hidden>
+        <section class="claim-card" aria-label="接码信息">
+          <div class="claim-table-head" aria-hidden="true">
+            <span>手机号码</span>
+            <span>状况</span>
+            <span>时间</span>
+          </div>
+          <div id="number-panel" class="number-panel">
+            <div class="number-copy claim-cell">
+              <span class="cell-label">手机号码</span>
+              <div class="number-line">
+                <strong id="claim-number">—</strong>
+                <button id="copy-number" class="copy-button" type="button">复制</button>
+              </div>
+            </div>
+
+            <div class="status-cell claim-cell">
+              <span class="cell-label">状况</span>
+              <div class="status-content">
+                <span id="polling-state" class="live-pill active">等待短信</span>
+                <div class="code-slot">
+                  <strong class="code-label">短信验证码：</strong>
+                  <div id="code-list" class="code-list" aria-live="polite"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="time-cell claim-cell">
+              <span class="cell-label">时间</span>
+              <strong id="claim-countdown">--:--:--</strong>
+              <span id="claim-notice">剩余时间</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="tutorial" aria-label="手机号登录步骤">
+          <div class="tutorial-heading">
+            <p class="tutorial-note">
+              <span class="tutorial-note-label">温馨提示</span>
+              <span>请先参考教程完成验证码发送，再耐心等待上方显示验证码。</span>
+            </p>
+          </div>
+          <ol class="tutorial-grid">
+            <li class="tutorial-card">
+              <figure>
+                <img src="/static/tutorial/step-1-phone-login.png" alt="腾讯视频登录页，箭头指向手机号登录入口" loading="lazy" />
+                <figcaption><span>01</span><strong>选择手机号登录</strong></figcaption>
+              </figure>
+            </li>
+            <li class="tutorial-card">
+              <figure>
+                <img src="/static/tutorial/step-2-other-number.png" alt="腾讯视频手机号登录页，箭头指向其他手机号登录" loading="lazy" />
+                <figcaption><span>02</span><strong>选择其他手机号</strong></figcaption>
+              </figure>
+            </li>
+            <li class="tutorial-card">
+              <figure>
+                <img src="/static/tutorial/step-3-get-code.png" alt="腾讯视频手机号登录页，箭头指向获取验证码" loading="lazy" />
+                <figcaption><span>03</span><strong>输入上方号码并获取验证码</strong></figcaption>
+              </figure>
+            </li>
+          </ol>
+        </section>
+      </div>
+    </main>
+    <div id="claim-toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

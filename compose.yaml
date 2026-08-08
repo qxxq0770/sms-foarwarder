@@ -1,0 +1,32 @@
+services:
+  sms-forwarder:
+    build: .
+    image: sms-forwarder:local
+    container_name: sms-forwarder
+    restart: unless-stopped
+    init: true
+    read_only: true
+    pids_limit: 128
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?请在 .env 中设置 ADMIN_PASSWORD}"
+      WEBHOOK_TOKEN: "${WEBHOOK_TOKEN:?请在 .env 中设置 WEBHOOK_TOKEN}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?请在 .env 中设置 ENCRYPTION_KEY}"
+      SESSION_SECRET: "${SESSION_SECRET:?请在 .env 中设置 SESSION_SECRET}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:?请在 .env 中设置 PUBLIC_BASE_URL}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      SESSION_HOURS: "${SESSION_HOURS:-12}"
+      DATABASE_PATH: /data/sms-forwarder.db
+    volumes:
+      - sms_data:/data
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  sms_data:
