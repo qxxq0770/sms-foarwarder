@@ -1080,11 +1080,12 @@ class MessageStore:
             return result
         codes = connection.execute(
             """
-            SELECT code_encrypted
+            SELECT code_encrypted, received_at
             FROM codes WHERE assignment_id = ? ORDER BY received_at ASC, id ASC LIMIT 3
             """,
             (row["assignment_id"],),
         ).fetchall()
+        latest_code = codes[-1] if codes else None
         result.update(
             {
                 "status": row["assignment_status"],
@@ -1092,6 +1093,16 @@ class MessageStore:
                 "started_at": row["started_at"],
                 "expires_at": row["assignment_expires_at"],
                 "code_count": len(codes),
+                "latest_code": (
+                    {
+                        "code": self._vault.decrypt(latest_code["code_encrypted"]),
+                        "expires_at": _iso(
+                            _parse(latest_code["received_at"]) + timedelta(seconds=60)
+                        ),
+                    }
+                    if latest_code
+                    else None
+                ),
                 "codes": [
                     {"code": self._vault.decrypt(code["code_encrypted"])}
                     for code in codes

@@ -69,8 +69,8 @@ def test_claim_page_is_automatic_and_has_no_service_metadata(client: TestClient)
     assert '/static/styles.css?v=43' in page.text
     assert 'publicApi("/api/public/claim", { method: "POST" })' in script.text
     assert 'window.history.replaceState' not in script.text
-    assert '/static/claim.css?v=36' in page.text
-    assert '/static/claim.js?v=16' in page.text
+    assert '/static/claim.css?v=38' in page.text
+    assert '/static/claim.js?v=18' in page.text
     assert 'document.execCommand("copy")' in script.text
     assert 'navigator.maxTouchPoints > 1' in script.text
     assert '请长按已选中的内容复制' in script.text
@@ -83,8 +83,10 @@ def test_claim_page_is_automatic_and_has_no_service_metadata(client: TestClient)
     assert 'id="copy-service-qq"' in page.text
     assert 'data-qq="2865629869"' in page.text
     assert 'copy(button.dataset.qq, "客服 QQ 已复制", $("#service-qq-value"))' in script.text
-    assert 'received ? "成功接收"' in script.text
-    assert 'classList.toggle("success", received)' in script.text
+    assert 'state.textContent = expired ? "已过期" : "NEW"' in script.text
+    assert 'data.latest_code || latestFromCodes(data.codes || [])' in script.text
+    assert 'classList.toggle("success", !expired)' in script.text
+    assert 'classList.toggle("expired", expired)' in script.text
     assert ".live-pill.success" in client.get("/static/claim.css").text
     assert ".status-cell.success" in client.get("/static/claim.css").text
     assert ".status-cell.success {\n  background: #fff;" in client.get("/static/claim.css").text
@@ -247,6 +249,8 @@ def test_builtin_rule_routes_independent_four_to_eight_digit_codes(authenticated
     state = authenticated_client.get("/api/public/state")
     assert state.json()["code_count"] == 1
     assert state.json()["codes"][0]["code"] == "333333"
+    assert state.json()["latest_code"]["code"] == "333333"
+    assert "expires_at" in state.json()["latest_code"]
     assert "Private message" not in state.text
     assert "Example" not in state.text
     assert "sender_masked" not in state.text and "received_at" not in state.text
@@ -258,6 +262,10 @@ def test_builtin_rule_routes_independent_four_to_eight_digit_codes(authenticated
     searched = authenticated_client.get("/api/messages", params={"q": record["key"]}).json()
     assert searched["total"] == 1
     assert searched["items"][0]["key"] == record["key"]
+    ingest_code(authenticated_client, settings, delivery_id="newest", code="444444", sender="Other")
+    state = authenticated_client.get("/api/public/state").json()
+    assert state["codes"][-1]["code"] == "444444"
+    assert state["latest_code"]["code"] == "444444"
 
 
 def test_duplicate_extracted_codes_do_not_count_twice(authenticated_client: TestClient, settings) -> None:

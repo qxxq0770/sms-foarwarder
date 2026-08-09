@@ -330,6 +330,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "started_at",
             "expires_at",
             "code_count",
+            "latest_code",
             "codes",
         }
         return {key: value for key, value in payload.items() if key in exposed}

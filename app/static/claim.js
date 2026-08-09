@@ -30,26 +30,58 @@ function render(data) {
   $("#claim-loading").hidden = true; $("#claim-error").hidden = true; $("#claim-app").hidden = false;
   $("#claim-notice").textContent = data.lease_minutes % 60 === 0 ? `打开后 ${data.lease_minutes / 60} 小时有效` : `打开后 ${data.lease_minutes} 分钟有效`;
   $("#claim-number").textContent = data.number;
-  const codes = data.codes || [];
-  const received = codes.length > 0;
   const active = data.status === "active";
-  $("#polling-state").textContent = received ? "成功接收" : (active ? "等待短信" : (data.status === "completed" ? "接收完成" : "已结束"));
-  $("#polling-state").className = `live-pill${received ? " success" : (active ? " active" : " done")}`;
-  $(".status-cell").classList.toggle("success", received);
-  renderCodes(codes);
+  renderCode(data.latest_code || latestFromCodes(data.codes || []));
   startCountdown(data.expires_at);
   if (active) startPolling(); else window.clearInterval(claimState.pollTimer);
 }
 
-function renderCodes(codes) {
+function latestFromCodes(codes) {
+  return codes.length ? codes[codes.length - 1] : null;
+}
+
+function codeExpired(code) {
+  if (!code?.expires_at) return false;
+  const expiresAt = new Date(code.expires_at).getTime();
+  return Number.isNaN(expiresAt) || Date.now() >= expiresAt;
+}
+
+function codeRemainingSeconds(code) {
+  if (!code?.expires_at) return 0;
+  return Math.max(0, Math.ceil((new Date(code.expires_at).getTime() - Date.now()) / 1000));
+}
+
+function updateCodeStatus(status = claimState.data?.status) {
+  const code = claimState.data?.latest_code || latestFromCodes(claimState.data?.codes || []);
+  const active = status === "active";
+  const state = $("#polling-state");
+  const statusCell = $(".status-cell");
+  if (!code?.code) {
+    state.textContent = active ? "等待短信" : (status === "completed" ? "接收完成" : "已结束");
+    state.className = `live-pill${active ? " active" : " done"}`;
+    statusCell.classList.remove("success", "expired");
+    return;
+  }
+  const expired = codeExpired(code);
+  state.textContent = expired ? "已过期" : "NEW";
+  state.className = `live-pill ${expired ? "expired" : "new"}`;
+  statusCell.classList.toggle("success", !expired);
+  statusCell.classList.toggle("expired", expired);
+  const hint = $("#code-expiry");
+  if (hint) hint.textContent = expired ? "" : `${codeRemainingSeconds(code)} 秒后过期`;
+}
+
+function renderCode(code) {
   const list = $("#code-list"); list.replaceChildren();
-  if (!codes.length) return;
-  codes.forEach((item) => {
-    const row = document.createElement("div"); row.className = "code-row";
-    const code = document.createElement("strong"); code.className = "code-value"; code.textContent = item.code;
-    const button = document.createElement("button"); button.type = "button"; button.className = "mini-copy"; button.textContent = "复制"; button.addEventListener("click", () => copy(item.code, "验证码已复制", code));
-    row.append(code, button); list.append(row);
-  });
+  if (!code?.code) { updateCodeStatus(); return; }
+  const row = document.createElement("div"); row.className = "code-row";
+  const valueWrap = document.createElement("div"); valueWrap.className = "code-value-wrap";
+  const value = document.createElement("strong"); value.className = "code-value"; value.textContent = code.code;
+  const expiry = document.createElement("span"); expiry.id = "code-expiry"; expiry.className = "code-expiry";
+  valueWrap.append(value, expiry);
+  const button = document.createElement("button"); button.type = "button"; button.className = "mini-copy"; button.textContent = "复制"; button.addEventListener("click", () => copy(code.code, "验证码已复制", value));
+  row.append(valueWrap, button); list.append(row);
+  updateCodeStatus();
 }
 
 function startCountdown(expiresAt) {
@@ -58,7 +90,8 @@ function startCountdown(expiresAt) {
     const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
     const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); const remainder = seconds % 60;
     $("#claim-countdown").textContent = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-    if (seconds === 0) { const received = Boolean(claimState.data?.codes?.length); window.clearInterval(claimState.countdownTimer); window.clearInterval(claimState.pollTimer); $("#polling-state").textContent = received ? "成功接收" : "已结束"; $("#polling-state").className = received ? "live-pill success" : "live-pill done"; }
+    updateCodeStatus();
+    if (seconds === 0) { const received = Boolean(claimState.data?.latest_code || claimState.data?.codes?.length); window.clearInterval(claimState.countdownTimer); window.clearInterval(claimState.pollTimer); if (!received) { $("#polling-state").textContent = "已结束"; $("#polling-state").className = "live-pill done"; } }
   };
   update(); claimState.countdownTimer = window.setInterval(update, 1000);
 }
