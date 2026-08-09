@@ -26,7 +26,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings
-from app.database import MessageStore, StoreConflict, StoreGone, StoreNotFound
+from app.database import (
+    MAX_PUBLIC_CODES,
+    MessageStore,
+    StoreConflict,
+    StoreGone,
+    StoreNotFound,
+)
 from app.security import PublicSessionSigner, SessionSigner, Vault, token_digest
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -259,9 +265,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="登录已过期")
         return username
 
+    def current_admin_session(sms_session: str | None) -> str | None:
+        session_data = signer.verify(sms_session or "")
+        if session_data is None:
+            return None
+        username, version = session_data
+        if username != config.admin_username or version != store.auth_version():
+            return None
+        return username
+
     def current_public_link(
+        authorization: Annotated[str | None, Header()] = None,
         sms_claim_session: Annotated[str | None, Cookie(alias=PUBLIC_SESSION_COOKIE)] = None,
     ) -> int:
+        if authorization is not None:
+            raw_token = extract_bearer_token(authorization)
+            if raw_token is None:
+                raise HTTPException(status_code=401, detail="访问会话无效或已过期")
+            if not 32 <= len(raw_token) <= 128:
+                raise HTTPException(status_code=401, detail="访问会话无效或已过期")
+            try:
+                return store.public_link_id_from_digest(token_digest(raw_token))
+            except StoreGone as exc:
+                raise HTTPException(status_code=410, detail=str(exc)) from exc
+            except StoreNotFound as exc:
+                raise HTTPException(status_code=401, detail="访问会话无效或已过期") from exc
         session_data = public_signer.verify(sms_claim_session or "")
         if session_data is None:
             raise HTTPException(status_code=401, detail="访问会话无效或已过期")
@@ -293,10 +321,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if token is None or not store.verify_webhook_token(token):
             raise HTTPException(status_code=401, detail="令牌无效")
 
+    def current_user_or_webhook(
+        authorization: Annotated[str | None, Header()] = None,
+        sms_session: Annotated[str | None, Cookie()] = None,
+    ) -> str:
+        username = current_admin_session(sms_session)
+        if username:
+            return username
+        token = extract_bearer_token(authorization)
+        if token is not None and store.verify_webhook_token(token):
+            return "webhook"
+        raise HTTPException(status_code=401, detail="请先登录或提供有效令牌")
+
     def verify_same_origin(request: Request) -> None:
         origin = request.headers.get("origin")
         if origin and origin.rstrip("/") != config.public_base_url.rstrip("/"):
             raise HTTPException(status_code=403, detail="请求来源无效")
+
+    def lease_minutes_filter(validity_hours: int | None) -> int | None:
+        if validity_hours is None:
+            return None
+        if validity_hours not in {12, 24}:
+            raise HTTPException(status_code=422, detail="有效期无效")
+        return validity_hours * 60
 
     def client_address(request: Request) -> str:
         return request.client.host if request.client else "unknown"
@@ -472,10 +519,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/share-links")
     def share_links(
-        _: Annotated[str, Depends(current_user)],
+        _: Annotated[str, Depends(current_user_or_webhook)],
         limit: int = 20,
         offset: int = 0,
         key_status: Annotated[str, Query(alias="status")] = "",
+        validity_hours: int | None = None,
     ) -> dict[str, object]:
         allowed = {"", "ready", "used"}
         if key_status not in allowed:
@@ -483,7 +531,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limit = min(max(limit, 1), 100)
         offset = max(offset, 0)
         items, total = store.list_share_links(
-            limit=limit, offset=offset, status_filter=key_status
+            limit=limit,
+            offset=offset,
+            status_filter=key_status,
+            lease_minutes_filter=lease_minutes_filter(validity_hours),
         )
         items = [
             item
@@ -500,21 +551,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/share-links/copy")
     def copy_share_links(
-        _: Annotated[str, Depends(current_user)],
+        _: Annotated[str, Depends(current_user_or_webhook)],
         key_status: Annotated[str, Query(alias="status")] = "",
-    ) -> dict[str, str | int]:
+        validity_hours: int | None = None,
+    ) -> dict[str, list[str] | int]:
         allowed = {"", "ready", "used"}
         if key_status not in allowed:
             raise HTTPException(status_code=422, detail="Key 状态无效")
         items, _ = store.list_share_links(
-            limit=1_000_000, offset=0, status_filter=key_status
+            limit=1_000_000,
+            offset=0,
+            status_filter=key_status,
+            lease_minutes_filter=lease_minutes_filter(validity_hours),
         )
         links = [
             f"{config.public_base_url}/c#t={item['token']}"
             for item in items
             if item.get("token")
         ]
-        return {"text": "\t".join(links), "count": len(links)}
+        return {"content": links, "count": len(links)}
 
     @app.post(
         "/api/share-links/batch",
@@ -565,7 +620,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "default_validity_hours": int(current["default_lease_minutes"]) // 60,
             "webhook_url": f"{config.public_base_url}/api/webhooks/sms",
             "cookie_secure": config.cookie_secure,
-            "max_codes": 3,
+            "max_codes": MAX_PUBLIC_CODES,
         }
 
     @app.patch(
@@ -582,7 +637,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "default_validity_hours": int(result["default_lease_minutes"]) // 60,
             "webhook_url": f"{config.public_base_url}/api/webhooks/sms",
             "cookie_secure": config.cookie_secure,
-            "max_codes": 3,
+            "max_codes": MAX_PUBLIC_CODES,
         }
 
     @app.post(

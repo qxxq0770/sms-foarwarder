@@ -1,5 +1,9 @@
-const claimState = { data: null, pollTimer: null, countdownTimer: null };
+const claimState = { data: null, pollTimer: null, countdownTimer: null, token: null };
 const $ = (selector) => document.querySelector(selector);
+
+function publicAuthHeaders() {
+  return claimState.token ? { Authorization: `Bearer ${claimState.token}` } : {};
+}
 
 async function publicApi(path, options = {}) {
   const response = await fetch(path, {
@@ -100,7 +104,7 @@ function startPolling() {
   if (claimState.pollTimer) return;
   claimState.pollTimer = window.setInterval(async () => {
     if (document.hidden) return;
-    try { render(await publicApi("/api/public/state")); }
+    try { render(await publicApi("/api/public/state", { headers: publicAuthHeaders() })); }
     catch (error) { if (error.status === 410 || error.status === 401) showError(error.message, "接码已结束"); }
   }, 3000);
 }
@@ -151,14 +155,15 @@ $("#copy-number").addEventListener("click", () => copy($("#claim-number").textCo
 
 (async function start() {
   const token = new URLSearchParams(window.location.hash.slice(1)).get("t");
+  claimState.token = token || null;
   try {
     let data;
     if (token) {
-      data = await publicApi("/api/public/session", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      data = await publicApi("/api/public/session", { method: "POST", headers: publicAuthHeaders() });
     } else {
       data = await publicApi("/api/public/state");
     }
-    if (!data.assigned) data = await publicApi("/api/public/claim", { method: "POST" });
+    if (!data.assigned) data = await publicApi("/api/public/claim", { method: "POST", headers: publicAuthHeaders() });
     render(data);
   } catch (error) {
     const title = error.status === 409 ? "暂无可用号码" : "链接不可用";

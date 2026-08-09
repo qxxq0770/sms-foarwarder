@@ -12,6 +12,7 @@ from app.security import Vault, hash_password, token_digest, verify_password
 
 
 DEFAULT_CODE_PATTERN = r"(?<!\d)(\d{4,8})(?!\d)"
+MAX_PUBLIC_CODES = 2
 
 
 class StoreNotFound(Exception):
@@ -57,6 +58,10 @@ class MessageStore:
                 (7, self._migration_7),
                 (8, self._migration_8),
                 (9, self._migration_9),
+                (10, self._migration_10),
+                (11, self._migration_11),
+                (12, self._migration_12),
+                (13, self._migration_13),
             ):
                 if version not in applied:
                     migration(connection)
@@ -362,6 +367,83 @@ class MessageStore:
     def _migration_9(self, connection: sqlite3.Connection) -> None:
         self._add_column(connection, "app_settings", "webhook_token_digest", "TEXT")
 
+    def _migration_10(self, connection: sqlite3.Connection) -> None:
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                CREATE TABLE codes_v10 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+                    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                    code_encrypted TEXT NOT NULL,
+                    sender_masked TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO codes_v10
+                SELECT id, assignment_id, message_id, code_encrypted,
+                       sender_masked, received_at, created_at
+                FROM codes;
+                DROP TABLE codes;
+                ALTER TABLE codes_v10 RENAME TO codes;
+                CREATE UNIQUE INDEX idx_codes_assignment_message
+                    ON codes(assignment_id, message_id);
+                CREATE INDEX idx_codes_message ON codes(message_id);
+                COMMIT;
+                """
+            )
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
+
+    def _migration_11(self, connection: sqlite3.Connection) -> None:
+        now = _iso(_utc_now())
+        connection.execute(
+            """
+            UPDATE assignments
+            SET status = 'active', ended_at = NULL
+            WHERE status = 'completed' AND expires_at > ?
+            """,
+            (now,),
+        )
+        self._sync_assignment_counts(connection, now)
+
+    def _migration_12(self, connection: sqlite3.Connection) -> None:
+        now = _iso(_utc_now())
+        connection.execute(
+            """
+            UPDATE assignments
+            SET code_count = MIN((
+                    SELECT COUNT(*) FROM codes c
+                    WHERE c.assignment_id = assignments.id
+                ), ?)
+            """,
+            (MAX_PUBLIC_CODES,),
+        )
+        connection.execute(
+            """
+            UPDATE assignments
+            SET status = 'completed', ended_at = COALESCE(ended_at, ?)
+            WHERE status = 'active'
+              AND expires_at > ?
+              AND (
+                  SELECT COUNT(*) FROM codes c
+                  WHERE c.assignment_id = assignments.id
+              ) >= ?
+            """,
+            (now, now, MAX_PUBLIC_CODES),
+        )
+        self._sync_assignment_counts(connection, now)
+
+    def _migration_13(self, connection: sqlite3.Connection) -> None:
+        self._refresh_expired(connection, _iso(_utc_now()))
+
     @staticmethod
     def _add_column(
         connection: sqlite3.Connection, table: str, column: str, definition: str
@@ -599,6 +681,15 @@ class MessageStore:
         normalized = normalize_number(recipient)
         if not normalized:
             return False
+        try:
+            match = re.search(DEFAULT_CODE_PATTERN, message)
+        except re.error:
+            return False
+        if match is None:
+            return False
+        code = (match.group(1) if match.lastindex else match.group(0)).strip()
+        if not code or len(code) > 64:
+            return False
         recipient_fingerprint = self._vault.fingerprint(normalized)
         received_iso = _iso(received_at.astimezone(UTC))
         now_iso = _iso(_utc_now())
@@ -618,25 +709,30 @@ class MessageStore:
                 """,
                 (recipient_fingerprint, received_iso, received_iso),
             ).fetchall()
+            routed_assignment_id: int | None = None
+            completed_any = False
             for row in rows:
-                try:
-                    match = re.search(DEFAULT_CODE_PATTERN, message)
-                except re.error:
-                    continue
-                if match is None:
-                    continue
-                code = (match.group(1) if match.lastindex else match.group(0)).strip()
-                if not code or len(code) > 64:
-                    continue
                 existing_codes = connection.execute(
                     "SELECT code_encrypted FROM codes WHERE assignment_id = ?",
                     (row["assignment_id"],),
                 ).fetchall()
+                if len(existing_codes) >= MAX_PUBLIC_CODES:
+                    connection.execute(
+                        """
+                        UPDATE assignments
+                        SET code_count = ?, status = 'completed',
+                            ended_at = COALESCE(ended_at, ?)
+                        WHERE id = ? AND status = 'active'
+                        """,
+                        (MAX_PUBLIC_CODES, now_iso, row["assignment_id"]),
+                    )
+                    completed_any = True
+                    continue
                 if any(
                     self._vault.decrypt(existing["code_encrypted"]) == code
                     for existing in existing_codes
                 ):
-                    return False
+                    continue
                 cursor = connection.execute(
                     """
                     INSERT OR IGNORE INTO codes (
@@ -654,27 +750,37 @@ class MessageStore:
                     ),
                 )
                 if cursor.rowcount != 1:
-                    return False
-                new_count = min(int(row["code_count"]) + 1, 3)
-                connection.execute(
-                    "UPDATE messages SET assignment_id = ? WHERE id = ?",
-                    (row["assignment_id"], message_id),
+                    continue
+                if routed_assignment_id is None:
+                    routed_assignment_id = int(row["assignment_id"])
+                code_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM codes WHERE assignment_id = ?",
+                        (row["assignment_id"],),
+                    ).fetchone()[0]
                 )
-                if new_count >= 3:
+                if code_count >= MAX_PUBLIC_CODES:
                     connection.execute(
                         """
                         UPDATE assignments
                         SET code_count = ?, status = 'completed', ended_at = ?
                         WHERE id = ?
                         """,
-                        (new_count, now_iso, row["assignment_id"]),
+                        (MAX_PUBLIC_CODES, now_iso, row["assignment_id"]),
                     )
-                    self._sync_assignment_counts(connection, now_iso)
+                    completed_any = True
                 else:
                     connection.execute(
                         "UPDATE assignments SET code_count = ? WHERE id = ?",
-                        (new_count, row["assignment_id"]),
+                        (code_count, row["assignment_id"]),
                     )
+            if routed_assignment_id is not None:
+                connection.execute(
+                    "UPDATE messages SET assignment_id = ? WHERE id = ?",
+                    (routed_assignment_id, message_id),
+                )
+                if completed_any:
+                    self._sync_assignment_counts(connection, now_iso)
                 return True
         return False
 
@@ -766,7 +872,10 @@ class MessageStore:
                 ),
                 "active_assignments": int(
                     connection.execute(
-                        "SELECT COUNT(*) FROM assignments WHERE status = 'active' AND expires_at > ?",
+                        """
+                        SELECT COUNT(*) FROM assignments
+                        WHERE status IN ('active', 'completed') AND expires_at > ?
+                        """,
                         (now,),
                     ).fetchone()[0]
                 ),
@@ -896,7 +1005,7 @@ class MessageStore:
                 """
                 UPDATE assignments
                 SET status = 'revoked', ended_at = ?
-                WHERE number_id = ? AND status = 'active'
+                WHERE number_id = ? AND status IN ('active', 'completed')
                 """,
                 (now, number_id),
             )
@@ -927,7 +1036,12 @@ class MessageStore:
             return [self._share_link_by_id(connection, link_id) for link_id in ids]
 
     def list_share_links(
-        self, *, limit: int, offset: int, status_filter: str = ""
+        self,
+        *,
+        limit: int,
+        offset: int,
+        status_filter: str = "",
+        lease_minutes_filter: int | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         now = _iso(_utc_now())
         with self._connect() as connection:
@@ -939,8 +1053,10 @@ class MessageStore:
                        a.status AS assignment_status, a.code_count
                 FROM share_links l
                 LEFT JOIN assignments a ON a.share_link_id = l.id
+                WHERE (? IS NULL OR l.lease_minutes = ?)
                 ORDER BY l.created_at DESC, l.id DESC
-                """
+                """,
+                (lease_minutes_filter, lease_minutes_filter),
             ).fetchall()
             decoded = [self._decode_share_link(row) for row in rows]
             if status_filter:
@@ -969,7 +1085,7 @@ class MessageStore:
                 connection.execute(
                     """
                     UPDATE assignments SET status = 'revoked', ended_at = ?
-                    WHERE share_link_id = ? AND status = 'active'
+                    WHERE share_link_id = ? AND status IN ('active', 'completed')
                     """,
                     (now, link_id),
                 )
@@ -988,6 +1104,17 @@ class MessageStore:
             if row is None:
                 raise StoreNotFound("链接无效")
             return self._public_state(connection, int(row["id"]))
+
+    def public_link_id_from_digest(self, digest: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, status FROM share_links WHERE token_digest = ?", (digest,)
+            ).fetchone()
+            if row is None:
+                raise StoreNotFound("链接无效")
+            if row["status"] != "active":
+                raise StoreGone("链接已撤销")
+            return int(row["id"])
 
     def public_state(self, link_id: int) -> dict[str, Any]:
         with self._connect() as connection:
@@ -1073,7 +1200,7 @@ class MessageStore:
             "token_version": row["token_version"],
             "lease_minutes": row["lease_minutes"],
             "assigned": row["assignment_id"] is not None,
-            "max_codes": 3,
+            "max_codes": MAX_PUBLIC_CODES,
         }
         if row["assignment_id"] is None:
             result.update({"status": "ready", "codes": [], "code_count": 0})
@@ -1081,10 +1208,14 @@ class MessageStore:
         codes = connection.execute(
             """
             SELECT code_encrypted, received_at
-            FROM codes WHERE assignment_id = ? ORDER BY received_at ASC, id ASC LIMIT 3
+            FROM codes
+            WHERE assignment_id = ?
+            ORDER BY received_at DESC, id DESC
+            LIMIT ?
             """,
-            (row["assignment_id"],),
+            (row["assignment_id"], MAX_PUBLIC_CODES),
         ).fetchall()
+        codes = list(reversed(codes))
         latest_code = codes[-1] if codes else None
         result.update(
             {
@@ -1116,7 +1247,7 @@ class MessageStore:
         connection.execute(
             """
             UPDATE assignments SET status = 'expired', ended_at = expires_at
-            WHERE status = 'active' AND expires_at <= ?
+            WHERE status IN ('active', 'completed') AND expires_at <= ?
             """,
             (now_iso,),
         )
@@ -1130,14 +1261,14 @@ class MessageStore:
             SET assignment_count = (
                     SELECT COUNT(*) FROM assignments a
                     WHERE a.number_id = numbers.id
-                      AND a.status = 'active'
+                      AND a.status IN ('active', 'completed')
                       AND a.expires_at > ?
                 ),
                 updated_at = CASE
                     WHEN assignment_count != (
                         SELECT COUNT(*) FROM assignments a
                         WHERE a.number_id = numbers.id
-                          AND a.status = 'active'
+                          AND a.status IN ('active', 'completed')
                           AND a.expires_at > ?
                     ) THEN ?
                     ELSE updated_at

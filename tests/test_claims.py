@@ -29,8 +29,12 @@ def create_key(client: TestClient) -> tuple[dict[str, object], str]:
     return item, token
 
 
+def public_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 def exchange_and_claim(client: TestClient, token: str) -> dict[str, object]:
-    exchange = client.post("/api/public/session", headers={"Authorization": f"Bearer {token}"})
+    exchange = client.post("/api/public/session", headers=public_headers(token))
     assert exchange.status_code == 200
     assert exchange.json()["assigned"] is False
     claim = client.post("/api/public/claim")
@@ -38,11 +42,21 @@ def exchange_and_claim(client: TestClient, token: str) -> dict[str, object]:
     return claim.json()
 
 
-def ingest_code(client: TestClient, settings, *, delivery_id: str, code: str, sender: str = "Example", recipient: str = "+447700900123") -> None:
+def ingest_code(
+    client: TestClient,
+    settings,
+    *,
+    delivery_id: str,
+    code: str,
+    sender: str = "Example",
+    recipient: str = "+447700900123",
+    received_at: datetime | None = None,
+) -> None:
+    timestamp = received_at or datetime.now(UTC)
     response = client.post(
         "/api/webhooks/sms",
         headers={"Authorization": f"Bearer {settings.webhook_token}"},
-        json={"version": "1", "event": "sms.received", "delivery_id": delivery_id, "rule_id": "public-code", "sender": sender, "recipient": recipient, "message": f"Private message. code: {code}.", "received_at": datetime.now(UTC).isoformat(), "is_test": False},
+        json={"version": "1", "event": "sms.received", "delivery_id": delivery_id, "rule_id": "public-code", "sender": sender, "recipient": recipient, "message": f"Private message. code: {code}.", "received_at": timestamp.isoformat(), "is_test": False},
     )
     assert response.status_code == 200
 
@@ -67,10 +81,11 @@ def test_claim_page_is_automatic_and_has_no_service_metadata(client: TestClient)
     assert "暂未收到验证码" not in page.text
     assert '/static/app-icon.png?v=1' in page.text
     assert '/static/styles.css?v=43' in page.text
-    assert 'publicApi("/api/public/claim", { method: "POST" })' in script.text
+    assert 'publicApi("/api/public/claim", { method: "POST", headers: publicAuthHeaders() })' in script.text
+    assert 'publicApi("/api/public/state", { headers: publicAuthHeaders() })' in script.text
     assert 'window.history.replaceState' not in script.text
     assert '/static/claim.css?v=38' in page.text
-    assert '/static/claim.js?v=18' in page.text
+    assert '/static/claim.js?v=19' in page.text
     assert 'document.execCommand("copy")' in script.text
     assert 'navigator.maxTouchPoints > 1' in script.text
     assert '请长按已选中的内容复制' in script.text
@@ -149,6 +164,58 @@ def test_batch_tokens_are_encrypted_and_visible_to_admin(authenticated_client: T
     assert "assignment_id" not in link_columns
 
 
+def test_ready_share_links_filter_by_validity_and_accept_webhook_token(
+    authenticated_client: TestClient, settings
+) -> None:
+    twelve_hour = authenticated_client.post(
+        "/api/share-links/batch", json={"count": 1, "validity_hours": 12}
+    ).json()["items"][0]
+    twenty_four_hour_items = authenticated_client.post(
+        "/api/share-links/batch", json={"count": 2, "validity_hours": 24}
+    ).json()["items"]
+    expected_links = {item["share_url"] for item in twenty_four_hour_items}
+    headers = {"Authorization": f"Bearer {settings.webhook_token}"}
+
+    with TestClient(
+        authenticated_client.app, base_url=settings.public_base_url
+    ) as bearer_client:
+        listed = bearer_client.get(
+            "/api/share-links",
+            params={"status": "ready", "validity_hours": 24, "limit": 100},
+            headers=headers,
+        )
+        copied = bearer_client.get(
+            "/api/share-links/copy",
+            params={"status": "ready", "validity_hours": 24},
+            headers=headers,
+        )
+        invalid_validity = bearer_client.get(
+            "/api/share-links",
+            params={"status": "ready", "validity_hours": 6},
+            headers=headers,
+        )
+        invalid_token = bearer_client.get(
+            "/api/share-links",
+            params={"status": "ready", "validity_hours": 24},
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 2
+    assert {item["share_url"] for item in listed.json()["items"]} == expected_links
+    assert {item["lease_minutes"] for item in listed.json()["items"]} == {1440}
+    assert all(item["display_status"] == "ready" for item in listed.json()["items"])
+    assert twelve_hour["share_url"] not in {
+        item["share_url"] for item in listed.json()["items"]
+    }
+    assert copied.status_code == 200
+    assert copied.json()["count"] == 2
+    assert set(copied.json()["content"]) == expected_links
+    assert "text" not in copied.json()
+    assert invalid_validity.status_code == 422
+    assert invalid_token.status_code == 401
+
+
 def test_claim_is_idempotent_and_uses_least_used_across_regions(authenticated_client: TestClient) -> None:
     first = create_inventory(authenticated_client, number="+44 7700 900123")
     assert first["assignment_count"] == 0
@@ -164,6 +231,82 @@ def test_claim_is_idempotent_and_uses_least_used_across_regions(authenticated_cl
     assert expires_at - started_at == timedelta(hours=12)
     numbers = authenticated_client.get("/api/numbers").json()
     assert next(item for item in numbers if item["id"] == first["id"])["assignment_count"] == 1
+
+
+def test_same_number_active_links_share_latest_code(
+    authenticated_client: TestClient, settings
+) -> None:
+    create_inventory(authenticated_client, max_assignments=2)
+    _, token_a = create_key(authenticated_client)
+    _, token_b = create_key(authenticated_client)
+
+    assert authenticated_client.post(
+        "/api/public/session", headers=public_headers(token_a)
+    ).status_code == 200
+    claim_a = authenticated_client.post(
+        "/api/public/claim", headers=public_headers(token_a)
+    )
+    assert claim_a.status_code == 200
+
+    assert authenticated_client.post(
+        "/api/public/session", headers=public_headers(token_b)
+    ).status_code == 200
+    claim_b = authenticated_client.post(
+        "/api/public/claim", headers=public_headers(token_b)
+    )
+    assert claim_b.status_code == 200
+    assert claim_b.json()["number"] == claim_a.json()["number"]
+
+    ingest_code(authenticated_client, settings, delivery_id="shared-code-1", code="111111")
+    state_a = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_a)
+    ).json()
+    state_b = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_b)
+    ).json()
+    assert state_a["latest_code"]["code"] == "111111"
+    assert state_b["latest_code"]["code"] == "111111"
+    assert state_a["codes"] == [{"code": "111111"}]
+    assert state_b["codes"] == [{"code": "111111"}]
+
+    ingest_code(authenticated_client, settings, delivery_id="shared-code-2", code="222222")
+
+    cookie_state = authenticated_client.get("/api/public/state").json()
+    state_a = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_a)
+    ).json()
+    state_b = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_b)
+    ).json()
+
+    assert cookie_state["latest_code"]["code"] == "222222"
+    assert cookie_state["status"] == "completed"
+    assert state_a["latest_code"]["code"] == "222222"
+    assert state_a["codes"] == [{"code": "111111"}, {"code": "222222"}]
+    assert state_b["latest_code"]["code"] == "222222"
+    assert state_b["codes"] == [{"code": "111111"}, {"code": "222222"}]
+    assert state_a["status"] == "completed"
+    assert state_b["status"] == "completed"
+    assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 2
+
+    ingest_code(authenticated_client, settings, delivery_id="shared-code-3", code="333333")
+    ingest_code(authenticated_client, settings, delivery_id="shared-code-4", code="444444")
+    state_a = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_a)
+    ).json()
+    state_b = authenticated_client.get(
+        "/api/public/state", headers=public_headers(token_b)
+    ).json()
+
+    expected_codes = [{"code": "111111"}, {"code": "222222"}]
+    assert state_a["status"] == "completed"
+    assert state_b["status"] == "completed"
+    assert state_a["code_count"] == 2
+    assert state_b["code_count"] == 2
+    assert state_a["latest_code"]["code"] == "222222"
+    assert state_b["latest_code"]["code"] == "222222"
+    assert state_a["codes"] == expected_codes
+    assert state_b["codes"] == expected_codes
 
 
 def test_expired_link_releases_number_usage(authenticated_client: TestClient, settings) -> None:
@@ -280,21 +423,45 @@ def test_duplicate_extracted_codes_do_not_count_twice(authenticated_client: Test
     assert state["codes"] == [{"code": "445566"}]
 
 
-def test_three_codes_complete_and_number_reuses_immediately(authenticated_client: TestClient, settings) -> None:
+def test_two_codes_complete_but_number_usage_releases_on_expiry(
+    authenticated_client: TestClient, settings
+) -> None:
     create_inventory(authenticated_client, max_assignments=1)
     _, token = create_key(authenticated_client)
     first = exchange_and_claim(authenticated_client, token)
     for index, code in enumerate(("100001", "100002", "100003"), 1):
         ingest_code(authenticated_client, settings, delivery_id=f"code-{index}", code=code)
-    assert authenticated_client.get("/api/public/state").json()["status"] == "completed"
-    assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 0
-    _, token2 = create_key(authenticated_client)
-    second = exchange_and_claim(authenticated_client, token2)
-    assert second["number"] == first["number"]
+    state = authenticated_client.get("/api/public/state").json()
+    assert state["status"] == "completed"
+    assert state["code_count"] == 2
+    assert state["latest_code"]["code"] == "100002"
+    assert state["codes"] == [
+        {"code": "100001"},
+        {"code": "100002"},
+    ]
     assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 1
-    _, token3 = create_key(authenticated_client)
-    authenticated_client.post("/api/public/session", headers={"Authorization": f"Bearer {token3}"})
-    assert authenticated_client.post("/api/public/claim").status_code == 409
+    _, token2 = create_key(authenticated_client)
+    authenticated_client.post("/api/public/session", headers=public_headers(token2))
+    assert (
+        authenticated_client.post(
+            "/api/public/claim", headers=public_headers(token2)
+        ).status_code
+        == 409
+    )
+
+    expired_at = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    with sqlite3.connect(settings.database_path) as connection:
+        connection.execute(
+            "UPDATE assignments SET expires_at = ? WHERE status = 'completed'",
+            (expired_at,),
+        )
+
+    assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 0
+    replacement = authenticated_client.post(
+        "/api/public/claim", headers=public_headers(token2)
+    )
+    assert replacement.status_code == 200
+    assert replacement.json()["number"] == first["number"]
 
 
 def test_batch_revoke_and_status_pagination(authenticated_client: TestClient) -> None:
@@ -309,10 +476,10 @@ def test_batch_revoke_and_status_pagination(authenticated_client: TestClient) ->
     copied = authenticated_client.get("/api/share-links/copy?status=used")
     assert copied.status_code == 200
     assert copied.json()["count"] == 2
-    copied_links = copied.json()["text"].split("\t")
+    copied_links = copied.json()["content"]
     assert set(copied_links) == {items[0]["share_url"], items[1]["share_url"]}
-    assert items[2]["share_url"] not in copied.json()["text"]
-    assert "\n" not in copied.json()["text"]
+    assert items[2]["share_url"] not in copied.json()["content"]
+    assert "text" not in copied.json()
     assert (
         authenticated_client.get("/api/share-links/copy?status=invalid").status_code
         == 422
@@ -349,5 +516,24 @@ def test_legacy_database_migrates_without_losing_messages(tmp_path, settings) ->
     with sqlite3.connect(path) as connection:
         versions = connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert versions == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+        indexes = {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(codes)")
+        }
+    assert versions == [
+        (1,),
+        (2,),
+        (3,),
+        (4,),
+        (5,),
+        (6,),
+        (7,),
+        (8,),
+        (9,),
+        (10,),
+        (11,),
+        (12,),
+        (13,),
+    ]
     assert "services" not in tables and "number_services" not in tables
+    assert "idx_codes_assignment_message" in indexes
