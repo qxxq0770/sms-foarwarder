@@ -12,7 +12,9 @@ from app.security import Vault, hash_password, token_digest, verify_password
 
 
 DEFAULT_CODE_PATTERN = r"(?<!\d)(\d{4,8})(?!\d)"
-MAX_PUBLIC_CODES = 2
+LEGACY_PUBLIC_CODE_LIMIT = 2
+MAX_PUBLIC_CODES: int | None = None
+PUBLIC_CODE_DISPLAY_LIMIT = 3
 
 
 class StoreNotFound(Exception):
@@ -62,6 +64,7 @@ class MessageStore:
                 (11, self._migration_11),
                 (12, self._migration_12),
                 (13, self._migration_13),
+                (14, self._migration_14),
             ):
                 if version not in applied:
                     migration(connection)
@@ -424,7 +427,7 @@ class MessageStore:
                     WHERE c.assignment_id = assignments.id
                 ), ?)
             """,
-            (MAX_PUBLIC_CODES,),
+            (LEGACY_PUBLIC_CODE_LIMIT,),
         )
         connection.execute(
             """
@@ -437,12 +440,29 @@ class MessageStore:
                   WHERE c.assignment_id = assignments.id
               ) >= ?
             """,
-            (now, now, MAX_PUBLIC_CODES),
+            (now, now, LEGACY_PUBLIC_CODE_LIMIT),
         )
         self._sync_assignment_counts(connection, now)
 
     def _migration_13(self, connection: sqlite3.Connection) -> None:
         self._refresh_expired(connection, _iso(_utc_now()))
+
+    def _migration_14(self, connection: sqlite3.Connection) -> None:
+        now = _iso(_utc_now())
+        connection.execute(
+            """
+            UPDATE assignments
+            SET code_count = (
+                    SELECT COUNT(*) FROM codes c
+                    WHERE c.assignment_id = assignments.id
+                ),
+                status = 'active',
+                ended_at = NULL
+            WHERE status = 'completed' AND expires_at > ?
+            """,
+            (now,),
+        )
+        self._sync_assignment_counts(connection, now)
 
     @staticmethod
     def _add_column(
@@ -710,24 +730,11 @@ class MessageStore:
                 (recipient_fingerprint, received_iso, received_iso),
             ).fetchall()
             routed_assignment_id: int | None = None
-            completed_any = False
             for row in rows:
                 existing_codes = connection.execute(
                     "SELECT code_encrypted FROM codes WHERE assignment_id = ?",
                     (row["assignment_id"],),
                 ).fetchall()
-                if len(existing_codes) >= MAX_PUBLIC_CODES:
-                    connection.execute(
-                        """
-                        UPDATE assignments
-                        SET code_count = ?, status = 'completed',
-                            ended_at = COALESCE(ended_at, ?)
-                        WHERE id = ? AND status = 'active'
-                        """,
-                        (MAX_PUBLIC_CODES, now_iso, row["assignment_id"]),
-                    )
-                    completed_any = True
-                    continue
                 if any(
                     self._vault.decrypt(existing["code_encrypted"]) == code
                     for existing in existing_codes
@@ -759,28 +766,15 @@ class MessageStore:
                         (row["assignment_id"],),
                     ).fetchone()[0]
                 )
-                if code_count >= MAX_PUBLIC_CODES:
-                    connection.execute(
-                        """
-                        UPDATE assignments
-                        SET code_count = ?, status = 'completed', ended_at = ?
-                        WHERE id = ?
-                        """,
-                        (MAX_PUBLIC_CODES, now_iso, row["assignment_id"]),
-                    )
-                    completed_any = True
-                else:
-                    connection.execute(
-                        "UPDATE assignments SET code_count = ? WHERE id = ?",
-                        (code_count, row["assignment_id"]),
-                    )
+                connection.execute(
+                    "UPDATE assignments SET code_count = ? WHERE id = ?",
+                    (code_count, row["assignment_id"]),
+                )
             if routed_assignment_id is not None:
                 connection.execute(
                     "UPDATE messages SET assignment_id = ? WHERE id = ?",
                     (routed_assignment_id, message_id),
                 )
-                if completed_any:
-                    self._sync_assignment_counts(connection, now_iso)
                 return True
         return False
 
@@ -1213,7 +1207,7 @@ class MessageStore:
             ORDER BY received_at DESC, id DESC
             LIMIT ?
             """,
-            (row["assignment_id"], MAX_PUBLIC_CODES),
+            (row["assignment_id"], PUBLIC_CODE_DISPLAY_LIMIT),
         ).fetchall()
         codes = list(reversed(codes))
         latest_code = codes[-1] if codes else None
@@ -1223,7 +1217,7 @@ class MessageStore:
                 "number": self._vault.decrypt(row["number_encrypted"]),
                 "started_at": row["started_at"],
                 "expires_at": row["assignment_expires_at"],
-                "code_count": len(codes),
+                "code_count": row["code_count"] or len(codes),
                 "latest_code": (
                     {
                         "code": self._vault.decrypt(latest_code["code_encrypted"]),

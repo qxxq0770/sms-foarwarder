@@ -280,13 +280,13 @@ def test_same_number_active_links_share_latest_code(
     ).json()
 
     assert cookie_state["latest_code"]["code"] == "222222"
-    assert cookie_state["status"] == "completed"
+    assert cookie_state["status"] == "active"
     assert state_a["latest_code"]["code"] == "222222"
     assert state_a["codes"] == [{"code": "111111"}, {"code": "222222"}]
     assert state_b["latest_code"]["code"] == "222222"
     assert state_b["codes"] == [{"code": "111111"}, {"code": "222222"}]
-    assert state_a["status"] == "completed"
-    assert state_b["status"] == "completed"
+    assert state_a["status"] == "active"
+    assert state_b["status"] == "active"
     assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 2
 
     ingest_code(authenticated_client, settings, delivery_id="shared-code-3", code="333333")
@@ -298,13 +298,13 @@ def test_same_number_active_links_share_latest_code(
         "/api/public/state", headers=public_headers(token_b)
     ).json()
 
-    expected_codes = [{"code": "111111"}, {"code": "222222"}]
-    assert state_a["status"] == "completed"
-    assert state_b["status"] == "completed"
-    assert state_a["code_count"] == 2
-    assert state_b["code_count"] == 2
-    assert state_a["latest_code"]["code"] == "222222"
-    assert state_b["latest_code"]["code"] == "222222"
+    expected_codes = [{"code": "222222"}, {"code": "333333"}, {"code": "444444"}]
+    assert state_a["status"] == "active"
+    assert state_b["status"] == "active"
+    assert state_a["code_count"] == 4
+    assert state_b["code_count"] == 4
+    assert state_a["latest_code"]["code"] == "444444"
+    assert state_b["latest_code"]["code"] == "444444"
     assert state_a["codes"] == expected_codes
     assert state_b["codes"] == expected_codes
 
@@ -423,21 +423,22 @@ def test_duplicate_extracted_codes_do_not_count_twice(authenticated_client: Test
     assert state["codes"] == [{"code": "445566"}]
 
 
-def test_two_codes_complete_but_number_usage_releases_on_expiry(
+def test_codes_continue_until_number_usage_releases_on_expiry(
     authenticated_client: TestClient, settings
 ) -> None:
     create_inventory(authenticated_client, max_assignments=1)
     _, token = create_key(authenticated_client)
     first = exchange_and_claim(authenticated_client, token)
-    for index, code in enumerate(("100001", "100002", "100003"), 1):
+    for index, code in enumerate(("100001", "100002", "100003", "100004"), 1):
         ingest_code(authenticated_client, settings, delivery_id=f"code-{index}", code=code)
     state = authenticated_client.get("/api/public/state").json()
-    assert state["status"] == "completed"
-    assert state["code_count"] == 2
-    assert state["latest_code"]["code"] == "100002"
+    assert state["status"] == "active"
+    assert state["code_count"] == 4
+    assert state["latest_code"]["code"] == "100004"
     assert state["codes"] == [
-        {"code": "100001"},
         {"code": "100002"},
+        {"code": "100003"},
+        {"code": "100004"},
     ]
     assert authenticated_client.get("/api/numbers").json()[0]["assignment_count"] == 1
     _, token2 = create_key(authenticated_client)
@@ -452,7 +453,7 @@ def test_two_codes_complete_but_number_usage_releases_on_expiry(
     expired_at = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     with sqlite3.connect(settings.database_path) as connection:
         connection.execute(
-            "UPDATE assignments SET expires_at = ? WHERE status = 'completed'",
+            "UPDATE assignments SET expires_at = ? WHERE status = 'active'",
             (expired_at,),
         )
 
@@ -534,6 +535,7 @@ def test_legacy_database_migrates_without_losing_messages(tmp_path, settings) ->
         (11,),
         (12,),
         (13,),
+        (14,),
     ]
     assert "services" not in tables and "number_services" not in tables
     assert "idx_codes_assignment_message" in indexes
