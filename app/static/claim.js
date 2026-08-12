@@ -100,6 +100,10 @@ function startCountdown(expiresAt) {
   update(); claimState.countdownTimer = window.setInterval(update, 1000);
 }
 
+function claimTokenFromUrl() {
+  return new URLSearchParams(window.location.search).get("t") || new URLSearchParams(window.location.hash.slice(1)).get("t");
+}
+
 function startPolling() {
   if (claimState.pollTimer) return;
   claimState.pollTimer = window.setInterval(async () => {
@@ -154,7 +158,7 @@ $("#copy-service-qq").addEventListener("click", (event) => {
 $("#copy-number").addEventListener("click", () => copy($("#claim-number").textContent, "号码已复制", $("#claim-number")));
 
 (async function start() {
-  const token = new URLSearchParams(window.location.hash.slice(1)).get("t");
+  const token = claimTokenFromUrl();
   claimState.token = token || null;
   try {
     let data;

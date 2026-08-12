@@ -25,7 +25,7 @@ def create_key(client: TestClient) -> tuple[dict[str, object], str]:
     )
     assert response.status_code == 201
     item = response.json()["items"][0]
-    token = parse_qs(urlsplit(item["share_url"]).fragment)["t"][0]
+    token = parse_qs(urlsplit(item["share_url"]).query)["t"][0]
     return item, token
 
 
@@ -81,11 +81,13 @@ def test_claim_page_is_automatic_and_has_no_service_metadata(client: TestClient)
     assert "暂未收到验证码" not in page.text
     assert '/static/app-icon.png?v=1' in page.text
     assert '/static/styles.css?v=43' in page.text
+    assert 'new URLSearchParams(window.location.search).get("t")' in script.text
+    assert 'new URLSearchParams(window.location.hash.slice(1)).get("t")' in script.text
     assert 'publicApi("/api/public/claim", { method: "POST", headers: publicAuthHeaders() })' in script.text
     assert 'publicApi("/api/public/state", { headers: publicAuthHeaders() })' in script.text
     assert 'window.history.replaceState' not in script.text
     assert '/static/claim.css?v=38' in page.text
-    assert '/static/claim.js?v=19' in page.text
+    assert '/static/claim.js?v=20' in page.text
     assert 'document.execCommand("copy")' in script.text
     assert 'navigator.maxTouchPoints > 1' in script.text
     assert '请长按已选中的内容复制' in script.text
@@ -143,11 +145,12 @@ def test_batch_tokens_are_encrypted_and_visible_to_admin(authenticated_client: T
     items = response.json()["items"]
     assert len(items) == 3
     assert all(item["lease_minutes"] == 720 for item in items)
-    tokens = [parse_qs(urlsplit(item["share_url"]).fragment)["t"][0] for item in items]
+    assert all("/c?t=" in item["share_url"] for item in items)
+    tokens = [parse_qs(urlsplit(item["share_url"]).query)["t"][0] for item in items]
     listed = authenticated_client.get("/api/share-links").json()
     assert listed["total"] == 3
     assert {
-        parse_qs(urlsplit(item["share_url"]).fragment)["t"][0]
+        parse_qs(urlsplit(item["share_url"]).query)["t"][0]
         for item in listed["items"]
     } == set(tokens)
     assert all(item["share_url"].startswith(settings.public_base_url) for item in listed["items"])
@@ -400,11 +403,16 @@ def test_builtin_rule_routes_independent_four_to_eight_digit_codes(authenticated
     assert "link_id" not in state.text and "token_version" not in state.text
     record = authenticated_client.get("/api/messages").json()["items"][0]
     assert record["share_link_id"] == key["id"]
-    assert record["key"] == f"{settings.public_base_url}/c#t={token}"
+    assert record["key"] == f"{settings.public_base_url}/c?t={token}"
     assert record["recipient"] == "+447700900123"
     searched = authenticated_client.get("/api/messages", params={"q": record["key"]}).json()
     assert searched["total"] == 1
     assert searched["items"][0]["key"] == record["key"]
+    legacy_searched = authenticated_client.get(
+        "/api/messages", params={"q": f"{settings.public_base_url}/c#t={token}"}
+    ).json()
+    assert legacy_searched["total"] == 1
+    assert legacy_searched["items"][0]["key"] == record["key"]
     ingest_code(authenticated_client, settings, delivery_id="newest", code="444444", sender="Other")
     state = authenticated_client.get("/api/public/state").json()
     assert state["codes"][-1]["code"] == "444444"
@@ -488,7 +496,12 @@ def test_batch_revoke_and_status_pagination(authenticated_client: TestClient) ->
 
 
 def test_invalid_batch_and_cross_origin_are_rejected(authenticated_client: TestClient) -> None:
-    assert authenticated_client.post("/api/share-links/batch", json={"count": 21}).status_code == 422
+    max_batch = authenticated_client.post(
+        "/api/share-links/batch", json={"count": 200}
+    )
+    assert max_batch.status_code == 201
+    assert len(max_batch.json()["items"]) == 200
+    assert authenticated_client.post("/api/share-links/batch", json={"count": 201}).status_code == 422
     assert authenticated_client.post("/api/share-links/batch", json={"count": 1, "validity_hours": 6}).status_code == 422
     blocked = authenticated_client.post(
         "/api/numbers",

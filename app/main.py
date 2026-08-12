@@ -39,6 +39,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 SESSION_COOKIE = "sms_session"
 PUBLIC_SESSION_COOKIE = "sms_claim_session"
 MAX_REQUEST_BODY_BYTES = 64 * 1024
+MAX_SHARE_LINK_BATCH_SIZE = 200
 
 
 class LoginRequest(BaseModel):
@@ -100,7 +101,7 @@ class NumberUpdate(BaseModel):
 
 
 class KeyBatchCreate(BaseModel):
-    count: int = Field(default=1, ge=1, le=20)
+    count: int = Field(default=1, ge=1, le=MAX_SHARE_LINK_BATCH_SIZE)
     validity_hours: Literal[12, 24] | None = None
 
 
@@ -348,6 +349,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def client_address(request: Request) -> str:
         return request.client.host if request.client else "unknown"
 
+    def share_url(token: str) -> str:
+        return f"{config.public_base_url}/c?t={token}"
+
+    def strip_share_url_prefix(query: str) -> str:
+        for prefix in (
+            f"{config.public_base_url}/c?t=",
+            f"{config.public_base_url}/c#t=",
+        ):
+            if query.startswith(prefix):
+                return query[len(prefix) :]
+        return query
+
     def set_public_cookie(response: Response, state_payload: dict[str, Any]) -> None:
         deadline_text = state_payload.get("expires_at")
         deadline = (
@@ -451,17 +464,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limit = min(max(limit, 1), 100)
         offset = max(offset, 0)
         query = q[:200]
-        share_url_prefix = f"{config.public_base_url}/c#t="
-        store_query = (
-            query[len(share_url_prefix) :]
-            if query.startswith(share_url_prefix)
-            else query
-        )
+        store_query = strip_share_url_prefix(query)
         items, total = store.list_messages(limit=limit, offset=offset, query=store_query)
         items = [
             item
             | {
-                "key": f"{share_url_prefix}{item['key']}" if item.get("key") else None
+                "key": share_url(item["key"]) if item.get("key") else None
             }
             for item in items
         ]
@@ -540,7 +548,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item
             | {
                 "share_url": (
-                    f"{config.public_base_url}/c#t={item['token']}"
+                    share_url(item["token"])
                     if item.get("token")
                     else None
                 )
@@ -565,7 +573,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lease_minutes_filter=lease_minutes_filter(validity_hours),
         )
         links = [
-            f"{config.public_base_url}/c#t={item['token']}"
+            share_url(item["token"])
             for item in items
             if item.get("token")
         ]
@@ -592,7 +600,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {
             "items": [
-                link | {"share_url": f"{config.public_base_url}/c#t={token}"}
+                link | {"share_url": share_url(token)}
                 for link, token in zip(links, raw_tokens, strict=True)
             ]
         }

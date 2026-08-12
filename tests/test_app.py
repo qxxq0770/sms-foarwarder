@@ -321,7 +321,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert "登录后管理号码、密钥与短信流转。" not in page.text
     assert page.text.count('class="brand-mark') == 2
     assert 'id="refresh-button"' not in page.text
-    assert '/static/app.js?v=36' in page.text
+    assert '/static/app.js?v=37' in page.text
     assert 'class="record-table-head record-grid"' in page.text
     for label in ("Key", "手机号", "短信", "时间"):
         assert f"<span>{label}</span>" in page.text
@@ -332,6 +332,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert 'placeholder="搜索使用记录"' in page.text
     assert 'id="generated-keys"' not in page.text
     assert 'id="copy-all-keys"' not in page.text
+    assert 'id="key-count" type="number" min="1" max="200"' in page.text
     assert 'id="generate-webhook-token"' in page.text
     assert 'id="webhook-token-result" class="token-result" hidden' in page.text
     script = client.get("/static/app.js")

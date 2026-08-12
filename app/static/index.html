@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="/static/app-icon.png?v=1" />
     <link rel="apple-touch-icon" href="/static/app-icon.png?v=1" />
     <link rel="stylesheet" href="/static/styles.css?v=44" />
-    <script src="/static/app.js?v=36" defer></script>
+    <script src="/static/app.js?v=37" defer></script>
   </head>
   <body>
     <main id="login-view" class="login-view" hidden>
@@ -76,7 +76,7 @@
           <section id="key-form-panel" class="panel form-panel" hidden>
             <div class="panel-heading"><h2>生成密钥</h2><button class="icon-button" data-close-panel="key-form-panel" type="button" aria-label="关闭">×</button></div>
             <form id="key-form" class="form-grid two">
-              <label>生成数量<input id="key-count" type="number" min="1" max="20" value="1" required /></label>
+              <label>生成数量<input id="key-count" type="number" min="1" max="200" value="1" required /></label>
               <label>有效期<select id="key-validity" required><option value="12">12 小时</option><option value="24">24 小时</option></select></label>
               <div class="warning-note form-span">有效期从买家首次打开并成功分配号码后开始；结束后号码立即返回号池。</div>
               <div class="form-actions form-span"><button class="button primary" type="submit">生成</button></div>
