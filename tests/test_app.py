@@ -173,9 +173,17 @@ def test_settings_validation_and_messages_are_retained(authenticated_client: Tes
     assert "sender_pattern" not in visible_settings
     assert "code_pattern" not in visible_settings
     assert "retention_days" not in visible_settings
+    assert (
+        visible_settings["share_links_copy_url"]
+        == "http://localhost:8000/api/share-links/copy?status=ready&validity_hours=24"
+    )
     assert authenticated_client.patch("/api/settings", json={"retention_days": 1}).status_code == 422
     updated = authenticated_client.patch("/api/settings", json={"default_validity_hours": 24})
     assert updated.json()["default_validity_hours"] == 24
+    assert (
+        updated.json()["share_links_copy_url"]
+        == "http://localhost:8000/api/share-links/copy?status=ready&validity_hours=24"
+    )
     assert "default_lease_minutes" not in updated.json()
     assert "default_link_hours" not in updated.json()
     sms_payload["received_at"] = (datetime.now(UTC) - timedelta(days=2)).isoformat()
@@ -313,7 +321,6 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert icon.status_code == 200
     assert icon.headers["content-type"] == "image/png"
     assert '/static/app-icon.png?v=1' in page.text
-    assert '/static/styles.css?v=44' in page.text
     assert 'class="login-brand"' in page.text
     assert "SMS Forwarder" in page.text
     assert "自托管短信工作台" not in page.text
@@ -321,7 +328,8 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert "登录后管理号码、密钥与短信流转。" not in page.text
     assert page.text.count('class="brand-mark') == 2
     assert 'id="refresh-button"' not in page.text
-    assert '/static/app.js?v=37' in page.text
+    assert '/static/styles.css?v=45' in page.text
+    assert '/static/app.js?v=38' in page.text
     assert 'class="record-table-head record-grid"' in page.text
     for label in ("Key", "手机号", "短信", "时间"):
         assert f"<span>{label}</span>" in page.text
@@ -335,6 +343,11 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert 'id="key-count" type="number" min="1" max="200"' in page.text
     assert 'id="generate-webhook-token"' in page.text
     assert 'id="webhook-token-result" class="token-result" hidden' in page.text
+    assert 'id="share-links-copy-url"' in page.text
+    assert 'id="copy-share-links-api"' in page.text
+    assert "24 小时待使用密钥复制接口" in page.text
+    assert "以上两个接口共用当前 Webhook Bearer Token" in page.text
+    assert "GET &lt;24 小时待使用密钥复制接口&gt;" in page.text
     script = client.get("/static/app.js")
     styles = client.get("/static/styles.css")
     assert 'data.available_uses' in script.text
@@ -346,6 +359,8 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert '>一键复制</button>' in page.text
     assert 'id="key-result-count"' in page.text
     assert '/api/share-links/copy?' in script.text
+    assert '$("#share-links-copy-url").textContent = state.settings.share_links_copy_url' in script.text
+    assert "密钥复制接口已复制" in script.text
     assert 'status: state.keys.status' in script.text
     assert 'copyText(data.content.join("\\n"), `已复制 ${data.count} 个链接`)' in script.text
     assert 'export.csv' not in script.text
@@ -360,6 +375,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert 'state.numbers.slice(state.numberPage.offset, state.numberPage.offset + state.numberPage.limit)' in script.text
     assert ".status-badge.used, .status-badge.revoked { background: var(--danger-soft); color: var(--danger); }" in styles.text
     assert ".key-toolbar { margin-top: 5px;" in styles.text
+    assert ".settings-field { display: grid; gap: 8px; }" in styles.text
     assert ".key-token { min-width: 0; flex: 0 1 auto; max-width: 100%;" in styles.text
     assert ".key-link-cell { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; }" in styles.text
     assert "minmax(110px, 0.72fr) minmax(90px, 0.55fr); column-gap: 30px;" in styles.text

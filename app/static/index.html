@@ -8,8 +8,8 @@
     <title>SMS Forwarder 管理台</title>
     <link rel="icon" type="image/png" href="/static/app-icon.png?v=1" />
     <link rel="apple-touch-icon" href="/static/app-icon.png?v=1" />
-    <link rel="stylesheet" href="/static/styles.css?v=44" />
-    <script src="/static/app.js?v=37" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=45" />
+    <script src="/static/app.js?v=38" defer></script>
   </head>
   <body>
     <main id="login-view" class="login-view" hidden>
@@ -94,10 +94,14 @@
           <div class="settings-grid">
             <section class="panel settings-block"><h2>接码设置</h2><p class="settings-description">有效期从密钥首次打开并成功分配号码后开始。</p><form id="defaults-form" class="stack-form"><label>默认有效期<select id="default-validity-hours" required><option value="12">12 小时</option><option value="24">24 小时</option></select></label><button class="button primary" type="submit">保存设置</button></form></section>
             <section class="panel settings-block account-settings"><h2>账户安全</h2><p class="settings-description">修改后其他管理会话会立即退出。</p><form id="password-form" class="stack-form"><label>当前密码<input id="current-password" type="password" autocomplete="current-password" required /></label><label>新密码<input id="new-password" type="password" minlength="8" autocomplete="new-password" required /></label><label>确认新密码<input id="confirm-password" type="password" minlength="8" autocomplete="new-password" required /></label><button class="button primary" type="submit">更新密码</button></form></section>
-            <section class="panel settings-block settings-wide webhook-settings"><h2>Webhook 接入</h2><p class="settings-description">短信转发端使用以下地址和认证头提交数据。</p><div class="field-row"><code id="webhook-url">—</code><button id="copy-webhook" class="button secondary compact" type="button">复制</button></div><div class="settings-divider"></div><div class="token-control"><div><strong>认证 Token</strong><span>生成新 Token 后旧 Token 立即失效，完整值仅显示一次。</span></div><button id="generate-webhook-token" class="button secondary" type="button">生成 Token</button></div><div id="webhook-token-result" class="token-result" hidden><code id="webhook-token-value"></code><button id="copy-webhook-token" class="button secondary compact" type="button">复制</button></div><pre class="request-example">Authorization: Bearer &lt;WEBHOOK_TOKEN&gt;
+            <section class="panel settings-block settings-wide webhook-settings"><h2>Webhook 接入</h2><p class="settings-description">短信转发端使用以下地址和认证头提交数据。</p><div class="settings-field"><strong>短信接收接口</strong><div class="field-row"><code id="webhook-url">—</code><button id="copy-webhook" class="button secondary compact" type="button">复制</button></div></div><div class="settings-field"><strong>24 小时待使用密钥复制接口</strong><div class="field-row"><code id="share-links-copy-url">—</code><button id="copy-share-links-api" class="button secondary compact" type="button">复制</button></div></div><div class="settings-divider"></div><div class="token-control"><div><strong>认证 Token</strong><span>生成新 Token 后旧 Token 立即失效，完整值仅显示一次。以上两个接口共用当前 Webhook Bearer Token。</span></div><button id="generate-webhook-token" class="button secondary" type="button">生成 Token</button></div><div id="webhook-token-result" class="token-result" hidden><code id="webhook-token-value"></code><button id="copy-webhook-token" class="button secondary compact" type="button">复制</button></div><pre class="request-example">POST &lt;短信接收接口&gt;
+Authorization: Bearer &lt;WEBHOOK_TOKEN&gt;
 Content-Type: application/json
 
-{"message":"验证码 123456","recipient":"+8613800000000"}</pre></section>
+{"message":"验证码 123456","recipient":"+8613800000000"}
+
+GET &lt;24 小时待使用密钥复制接口&gt;
+Authorization: Bearer &lt;WEBHOOK_TOKEN&gt;</pre></section>
           </div>
         </section>
       </main>

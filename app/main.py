@@ -621,15 +621,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _store_call(store.revoke_share_link, link_id)
         return Response(status_code=204)
 
-    @app.get("/api/settings")
-    def get_settings(_: Annotated[str, Depends(current_user)]) -> dict[str, Any]:
-        current = store.get_settings()
+    def settings_response(current: dict[str, Any]) -> dict[str, Any]:
         return {
             "default_validity_hours": int(current["default_lease_minutes"]) // 60,
             "webhook_url": f"{config.public_base_url}/api/webhooks/sms",
+            "share_links_copy_url": (
+                f"{config.public_base_url}/api/share-links/copy?"
+                "status=ready&validity_hours=24"
+            ),
             "cookie_secure": config.cookie_secure,
             "max_codes": MAX_PUBLIC_CODES,
         }
+
+    @app.get("/api/settings")
+    def get_settings(_: Annotated[str, Depends(current_user)]) -> dict[str, Any]:
+        current = store.get_settings()
+        return settings_response(current)
 
     @app.patch(
         "/api/settings",
@@ -641,12 +648,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if validity_hours is not None:
             values["default_lease_minutes"] = validity_hours * 60
         result = store.update_settings(values)
-        return {
-            "default_validity_hours": int(result["default_lease_minutes"]) // 60,
-            "webhook_url": f"{config.public_base_url}/api/webhooks/sms",
-            "cookie_secure": config.cookie_secure,
-            "max_codes": MAX_PUBLIC_CODES,
-        }
+        return settings_response(result)
 
     @app.post(
         "/api/settings/password",

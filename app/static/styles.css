@@ -431,6 +431,9 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgb
 .webhook-settings::before { background: #7a64d1; }
 .settings-description { min-height: 38px; margin: 8px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .settings-divider { margin: 18px 0; border-top: 1px solid var(--line); }
+.settings-field { display: grid; gap: 8px; }
+.settings-field + .settings-field { margin-top: 16px; }
+.settings-field strong { color: var(--ink-soft); font-size: 12px; }
 .field-row { margin-top: 13px; display: flex; gap: 8px; }
 .field-row code { min-width: 0; flex: 1; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: #f8fafc; font-size: 11px; white-space: nowrap; }
 .token-control { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
