@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="/static/app-icon.png?v=1" />
     <link rel="apple-touch-icon" href="/static/app-icon.png?v=1" />
     <link rel="stylesheet" href="/static/styles.css?v=45" />
-    <script src="/static/app.js?v=38" defer></script>
+    <script src="/static/app.js?v=40" defer></script>
   </head>
   <body>
     <main id="login-view" class="login-view" hidden>
@@ -83,7 +83,7 @@
             </form>
           </section>
           <div class="key-toolbar">
-            <label>状态筛选<select id="key-status"><option value="">全部状态</option><option value="ready">待使用</option><option value="used">已使用</option></select></label>
+            <label>状态筛选<select id="key-status"><option value="">全部状态</option><option value="ready" selected>待使用</option><option value="used">已使用</option></select></label>
             <div class="key-toolbar-actions"><span id="key-result-count" class="result-count"></span><button id="copy-filtered-keys" class="button secondary" type="button">一键复制</button></div>
           </div>
           <div class="panel table-wrap key-list-panel"><div class="table-head key-grid"><span>领取链接</span><span>有效期</span><span>状态</span></div><div id="key-list" class="table-body"></div></div>

@@ -1,6 +1,6 @@
 const state = {
   messages: { items: [], total: 0, offset: 0, limit: 20, query: "" },
-  keys: { items: [], total: 0, offset: 0, limit: 20, status: "" },
+  keys: { items: [], total: 0, offset: 0, limit: 20, status: "ready" },
   numbers: [], numberPage: { offset: 0, limit: 20 }, numberEditor: null, settings: null, selectedMessageId: null,
 };
 
@@ -39,7 +39,7 @@ function actionButton(label, handler, danger = false) { const button = node("but
 async function copyText(value, success) { try { await navigator.clipboard.writeText(value); toast(success); } catch (_) { toast("浏览器不允许访问剪贴板", true); } }
 function setPagination(prefix, collection) { const pages = Math.max(1, Math.ceil(collection.total / collection.limit)); const current = Math.floor(collection.offset / collection.limit) + 1; $(`#${prefix}-pagination`).hidden = collection.total <= collection.limit; $(`#${prefix}-page`).textContent = `${current} / ${pages}`; $(`#${prefix}-previous`).disabled = collection.offset === 0; $(`#${prefix}-next`).disabled = collection.offset + collection.limit >= collection.total; }
 
-function switchView(view) { if (!views.has(view)) return; document.querySelectorAll(".view-section").forEach((section) => { section.hidden = true; }); $(`#${view}-section`).hidden = false; document.querySelectorAll(".nav-item").forEach((link) => { const active = link.dataset.view === view; link.classList.toggle("active", active); if (active) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current"); }); window.scrollTo({ top: 0, behavior: "smooth" }); if (view === "dashboard") refreshDashboard(); }
+function switchView(view) { if (!views.has(view)) return; document.querySelectorAll(".view-section").forEach((section) => { section.hidden = true; }); $(`#${view}-section`).hidden = false; document.querySelectorAll(".nav-item").forEach((link) => { const active = link.dataset.view === view; link.classList.toggle("active", active); if (active) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current"); }); window.scrollTo({ top: 0, behavior: "smooth" }); refreshVisibleData(); }
 
 async function loadStats() { const data = await api("/api/stats"); $("#available-count").textContent = data.available_numbers; $("#available-uses-count").textContent = data.available_uses; $("#active-count").textContent = data.active_assignments; $("#ready-count").textContent = data.ready_keys; $("#today-count").textContent = data.messages_today; }
 
@@ -76,9 +76,9 @@ async function copyFilteredKeys() { const button = $("#copy-filtered-keys"); but
 async function loadSettings() { state.settings = await api("/api/settings"); $("#default-validity-hours").value = state.settings.default_validity_hours; $("#webhook-url").textContent = state.settings.webhook_url; $("#share-links-copy-url").textContent = state.settings.share_links_copy_url; setDefaultKeyValues(); }
 function setDefaultKeyValues() { if (!state.settings) return; $("#key-validity").value = state.settings.default_validity_hours; $("#key-count").value = "1"; }
 async function refreshAll() { const results = await Promise.allSettled([loadStats(), loadMessages(), loadNumbers(), loadKeys(), loadSettings()]); const failed = results.find((result) => result.status === "rejected"); if (failed) toast(failed.reason.message, true); }
-let dashboardRefreshPending = false;
-async function refreshDashboard() { if (dashboardRefreshPending || document.hidden || elements.appView.hidden || $("#dashboard-section").hidden) return; dashboardRefreshPending = true; try { await Promise.all([loadStats(), loadMessages()]); } catch (_) { /* api() handles expired sessions */ } finally { dashboardRefreshPending = false; } }
-window.setInterval(refreshDashboard, 5000);
+let autoRefreshPending = false;
+async function refreshVisibleData() { if (autoRefreshPending || document.hidden || elements.appView.hidden) return; autoRefreshPending = true; try { const view = currentView(); if (view === "dashboard") await Promise.all([loadStats(), loadMessages()]); else if (view === "keys") await Promise.all([loadStats(), loadKeys()]); else if (view === "numbers" && !state.numberEditor) await Promise.all([loadStats(), loadNumbers()]); } catch (_) { /* api() handles expired sessions */ } finally { autoRefreshPending = false; } }
+window.setInterval(refreshVisibleData, 5000);
 
 elements.loginForm.addEventListener("submit", async (event) => { event.preventDefault(); elements.loginError.hidden = true; const button = event.currentTarget.querySelector("button"); button.disabled = true; try { const session = await api("/api/session", { method: "POST", body: JSON.stringify({ username: $("#username").value, password: $("#password").value }) }); $("#password").value = ""; showApp(session.username); await refreshAll(); } catch (error) { elements.loginError.textContent = error.message; elements.loginError.hidden = false; } finally { button.disabled = false; } });
 elements.accountButton.addEventListener("click", () => setAccountMenu(elements.logoutButton.hidden));
@@ -86,6 +86,7 @@ elements.logoutButton.addEventListener("click", async () => { setAccountMenu(fal
 document.addEventListener("click", (event) => { if (!elements.accountMenu.contains(event.target)) setAccountMenu(false); });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") { setAccountMenu(false); elements.accountButton.focus(); } });
 window.addEventListener("hashchange", () => { if (!elements.appView.hidden) switchView(currentView()); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshVisibleData(); });
 document.querySelectorAll("[data-toggle-panel]").forEach((button) => button.addEventListener("click", () => { const panel = $(`#${button.dataset.togglePanel}`); panel.hidden = !panel.hidden; }));
 document.querySelectorAll("[data-close-panel]").forEach((button) => button.addEventListener("click", () => { $(`#${button.dataset.closePanel}`).hidden = true; }));
 let searchTimer; $("#search-input").addEventListener("input", (event) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.messages.query = event.target.value.trim(); state.messages.offset = 0; loadMessages().catch((error) => toast(error.message, true)); }, 250); });

@@ -329,7 +329,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert page.text.count('class="brand-mark') == 2
     assert 'id="refresh-button"' not in page.text
     assert '/static/styles.css?v=45' in page.text
-    assert '/static/app.js?v=38' in page.text
+    assert '/static/app.js?v=40' in page.text
     assert 'class="record-table-head record-grid"' in page.text
     for label in ("Key", "手机号", "短信", "时间"):
         assert f"<span>{label}</span>" in page.text
@@ -355,6 +355,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert 'actionButton("重置次数", () => resetNumberUsage(item))' in script.text
     assert '/reset-usage`' in script.text
     assert 'id="key-status"' in page.text
+    assert '<option value="ready" selected>待使用</option>' in page.text
     assert 'id="copy-filtered-keys"' in page.text
     assert '>一键复制</button>' in page.text
     assert 'id="key-result-count"' in page.text
@@ -363,6 +364,11 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
     assert "密钥复制接口已复制" in script.text
     assert 'status: state.keys.status' in script.text
     assert 'copyText(data.content.join("\\n"), `已复制 ${data.count} 个链接`)' in script.text
+    assert 'async function refreshVisibleData()' in script.text
+    assert 'window.setInterval(refreshVisibleData, 5000)' in script.text
+    assert 'document.addEventListener("visibilitychange"' in script.text
+    assert 'view === "keys") await Promise.all([loadStats(), loadKeys()])' in script.text
+    assert 'view === "numbers" && !state.numberEditor' in script.text
     assert 'export.csv' not in script.text
     for prefix in ("message", "number", "key"):
         assert f'id="{prefix}-pagination"' in page.text
@@ -370,7 +376,7 @@ def test_admin_page_has_exactly_four_chinese_navigation_modules(client: TestClie
         assert f'id="{prefix}-page"' in page.text
         assert f'id="{prefix}-next"' in page.text
     assert 'messages: { items: [], total: 0, offset: 0, limit: 20' in script.text
-    assert 'keys: { items: [], total: 0, offset: 0, limit: 20' in script.text
+    assert 'keys: { items: [], total: 0, offset: 0, limit: 20, status: "ready" }' in script.text
     assert 'numberPage: { offset: 0, limit: 20 }' in script.text
     assert 'state.numbers.slice(state.numberPage.offset, state.numberPage.offset + state.numberPage.limit)' in script.text
     assert ".status-badge.used, .status-badge.revoked { background: var(--danger-soft); color: var(--danger); }" in styles.text
